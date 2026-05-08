@@ -28,7 +28,7 @@ driver = webdriver.Chrome(options=options)
 # CONFIG
 # ─────────────────────────────────────────
 
-WHATSAPP_PHONE = "8892237281"
+WHATSAPP_PHONE = "11111111"
 
 MARKET_SYMBOLS = [
     ("^DJI",     "DOW"),
