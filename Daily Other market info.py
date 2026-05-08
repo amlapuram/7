@@ -1,40 +1,79 @@
-# pip install yfinance selenium webdriver-manager
-
-import time, os, urllib.parse
 from datetime import datetime
 import yfinance as yf
+import streamlit as st
 
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
+# ─────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+st.set_page_config(
+    page_title="Daily Market Briefing",
+    page_icon="📊",
+    layout="wide"
+)
 
-options = Options()
-options.add_argument("--headless")
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
-options.binary_location = "/usr/bin/chromium"
+st.markdown("""
+<style>
+    .market-card {
+        background: #1e1e2e;
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-left: 4px solid #444;
+    }
+    .market-card.green { border-left-color: #00c853; }
+    .market-card.red   { border-left-color: #ff1744; }
 
-driver = webdriver.Chrome(options=options)
+    .card-name  { font-size: 15px; font-weight: 600; color: #cdd6f4; }
+    .card-price { font-size: 18px; font-weight: 700; color: #ffffff; }
+    .card-change-green { font-size: 14px; color: #00e676; font-weight: 600; }
+    .card-change-red   { font-size: 14px; color: #ff5252; font-weight: 600; }
+
+    .section-title {
+        font-size: 20px;
+        font-weight: 700;
+        color: #cba6f7;
+        margin: 24px 0 12px 0;
+        letter-spacing: 0.5px;
+    }
+
+    .earnings-row {
+        background: #1e1e2e;
+        border-radius: 10px;
+        padding: 12px 18px;
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+        border-left: 4px solid #89b4fa;
+        color: #cdd6f4;
+        font-size: 14px;
+    }
+    .earnings-name { font-weight: 600; color: #89dceb; }
+    .earnings-date { color: #a6e3a1; font-weight: 500; }
+
+    .timestamp {
+        font-size: 13px;
+        color: #6c7086;
+        margin-bottom: 20px;
+    }
+
+    .stApp { background-color: #11111b; }
+    div[data-testid="stVerticalBlock"] { gap: 0rem; }
+</style>
+""", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────
 
-WHATSAPP_PHONE = "11111111"
-
 MARKET_SYMBOLS = [
-    ("^DJI",     "DOW"),
-    ("^GSPC",    "S&P500"),
+    ("^DJI",     "DOW Jones"),
+    ("^GSPC",    "S&P 500"),
     ("^IXIC",    "NASDAQ"),
-    ("CL=F",     "Crude"),
+    ("CL=F",     "Crude Oil"),
     ("GC=F",     "Gold"),
     ("SI=F",     "Silver"),
     ("USDINR=X", "USD/INR"),
@@ -47,44 +86,41 @@ ASIAN_SYMBOLS = [
 ]
 
 EARNINGS_STOCKS = [
-    ("SBIN.NS",      "SBI"),
-    ("ITC.NS",       "ITC"),
-    ("WIPRO.NS",     "Wipro"),
-    ("CANBK.NS",     "Canara"),
-    ("TMPV.NS",      "Tata Motors PV"),
-    ("MOREPENLAB.NS","Morepen"),
-    ("IOB.NS",       "IOB"),
-    ("YESBANK.NS",   "Yes Bank"),
-    ("PETRONET.NS",  "Petronet"),
+    ("SBIN.NS",       "SBI"),
+    ("ITC.NS",        "ITC"),
+    ("WIPRO.NS",      "Wipro"),
+    ("CANBK.NS",      "Canara Bank"),
+    ("TATAMOTORS.NS", "Tata Motors"),
+    ("MOREPENLAB.NS", "Morepen"),
+    ("IOB.NS",        "IOB"),
+    ("YESBANK.NS",    "Yes Bank"),
+    ("PETRONET.NS",   "Petronet"),
 ]
 
 # ─────────────────────────────────────────
-# HELPERS
+# DATA HELPERS
 # ─────────────────────────────────────────
 
+@st.cache_data(ttl=300)
 def get_data(symbol):
     try:
         h = yf.Ticker(symbol).history(period="5d")
         if h.empty or len(h) < 2:
             return None, None, None, None
-
         last, prev = h.iloc[-1], h.iloc[-2]
-
-        price = round(last["Close"], 2)
-        chg   = round(price - prev["Close"], 2)
-        pct   = round((chg / prev["Close"]) * 100, 2)
+        price = round(float(last["Close"]), 2)
+        chg   = round(price - float(prev["Close"]), 2)
+        pct   = round((chg / float(prev["Close"])) * 100, 2)
         dt    = h.index[-1].strftime("%d %b %Y")
-
         return price, chg, pct, dt
     except:
         return None, None, None, None
 
 
+@st.cache_data(ttl=3600)
 def get_earnings(symbol):
     try:
         t = yf.Ticker(symbol)
-
-        # 1️⃣ calendar
         cal = t.calendar
         if cal is not None and not cal.empty:
             cols = list(cal.columns)
@@ -92,159 +128,88 @@ def get_earnings(symbol):
                 d = cols[0]
                 if hasattr(d, "strftime"):
                     return d.strftime("%d %b %Y")
-
-        # 2️⃣ earnings_dates
         try:
             ed = t.earnings_dates
             if ed is not None and not ed.empty:
-                d = ed.index[0]
-                return d.strftime("%d %b %Y")
+                return ed.index[0].strftime("%d %b %Y")
         except:
             pass
-
-        # 3️⃣ info fallback
         try:
-            info = t.info
-            ts = info.get("earningsTimestamp")
+            ts = t.info.get("earningsTimestamp")
             if ts:
                 return datetime.fromtimestamp(ts).strftime("%d %b %Y")
         except:
             pass
-
     except:
         pass
-
     return "N/A"
 
+# ─────────────────────────────────────────
+# CARD RENDERER
+# ─────────────────────────────────────────
+
+def render_market_card(name, price, chg, pct, invert=False):
+    if price is None:
+        st.markdown(f"""
+        <div class="market-card">
+            <div class="card-name">{name}</div>
+            <div class="card-price" style="color:#6c7086;">N/A</div>
+        </div>""", unsafe_allow_html=True)
+        return
+
+    # For USD/INR: rising rate is bad for India, so invert colour logic
+    is_positive  = (chg < 0) if invert else (chg >= 0)
+    color_class  = "green" if is_positive else "red"
+    change_class = "card-change-green" if is_positive else "card-change-red"
+    arrow        = "▲" if chg >= 0 else "▼"
+    sign         = "+" if chg >= 0 else ""
+
+    st.markdown(f"""
+    <div class="market-card {color_class}">
+        <div class="card-name">{name}</div>
+        <div>
+            <div class="card-price">{price:,.2f}</div>
+            <div class="{change_class}">{arrow} {sign}{chg:.2f} &nbsp;({sign}{pct:.2f}%)</div>
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+
+def render_earnings_row(name, date):
+    st.markdown(f"""
+    <div class="earnings-row">
+        <span class="earnings-name">🔹 {name}</span>
+        <span class="earnings-date">📅 {date}</span>
+    </div>""", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────
-# MESSAGE BUILDER
+# MAIN UI
 # ─────────────────────────────────────────
 
-def build_message():
-    now = datetime.now().strftime("%d %b %Y, %H:%M")
+st.markdown("## 📊 Daily Market Briefing")
+st.markdown(f'<div class="timestamp">🕗 {datetime.now().strftime("%d %b %Y, %H:%M IST")}</div>',
+            unsafe_allow_html=True)
 
-    lines = []
-    lines.append("📊 *Daily Market Briefing*")
-    lines.append(f"🕗 {now}\n")
+if st.button("🔄 Refresh Data", type="primary"):
+    st.cache_data.clear()
+    st.rerun()
 
-    # ── GLOBAL ──
-    lines.append("🌍 *GLOBAL MARKETS*")
-    lines.append("┌──────────────────────────────────────┐")
+# ── GLOBAL MARKETS ──
+st.markdown('<div class="section-title">🌍 Global Markets</div>', unsafe_allow_html=True)
 
-    red, green = [], []
-
-    for sym, name in MARKET_SYMBOLS:
+with st.spinner("Loading global markets..."):
+    col1, col2 = st.columns(2)
+    for i, (sym, name) in enumerate(MARKET_SYMBOLS):
         price, chg, pct, dt = get_data(sym)
-        if price is None:
-            continue
+        with (col1 if i % 2 == 0 else col2):
+            render_market_card(name, price, chg, pct, invert=(name in ("USD/INR", "Crude Oil")))
 
-        arrow = "▲" if chg >= 0 else "▼"
-        sign  = "+" if chg >= 0 else ""
-        row   = f"{name:<10} {price:>9,.2f} {arrow}{sign}{chg:.2f} ({sign}{pct:.2f}%)"
+# ── ASIAN MARKETS ──
+st.markdown('<div class="section-title">🌏 Asian Markets Yesterday info</div>', unsafe_allow_html=True)
 
-        # USD/INR: rising rate is bad for India (red)
-        if name == "USD/INR":
-            (red if chg > 0 else green).append(f"│ {'🔴' if chg > 0 else '🟢'} {row}")
-        else:
-            (green if chg >= 0 else red).append(f"│ {'🟢' if chg >= 0 else '🔴'} {row}")
-
-    lines.append("│ Market     Price      Change        │")
-    lines.append("├──────────────────────────────────────┤")
-    lines.extend(red)
-    if red and green:
-        lines.append("├──────────────────────────────────────┤")
-    lines.extend(green)
-    lines.append("└──────────────────────────────────────┘\n")
-
-    # ── ASIAN ──
-    lines.append("🌏 *ASIAN MARKETS*")
-    lines.append("┌──────────────────────────────────────┐")
-
-    red, green = [], []
-
-    for sym, name in ASIAN_SYMBOLS:
+with st.spinner("Loading Asian markets..."):
+    col1, col2 = st.columns(2)
+    for i, (sym, name) in enumerate(ASIAN_SYMBOLS):
         price, chg, pct, dt = get_data(sym)
-        if price is None:
-            continue
+        with (col1 if i % 2 == 0 else col2):
+            render_market_card(name, price, chg, pct)
 
-        arrow = "▲" if chg >= 0 else "▼"
-        sign  = "+" if chg >= 0 else ""
-        row   = f"{name:<10} {price:>9,.2f} {arrow}{sign}{chg:.2f} ({sign}{pct:.2f}%)"
-
-        (green if chg >= 0 else red).append(f"│ {'🟢' if chg >= 0 else '🔴'} {row}")
-
-    lines.append("│ Index      Price      Change        │")
-    lines.append("├──────────────────────────────────────┤")
-    lines.extend(red)
-    if red and green:
-        lines.append("├──────────────────────────────────────┤")
-    lines.extend(green)
-    lines.append("└──────────────────────────────────────┘\n")
-
-    # ── EARNINGS ──
-    lines.append("📅 *UPCOMING EARNINGS*")
-    lines.append("────────────────────────")
-
-    for sym, name in EARNINGS_STOCKS:
-        ed = get_earnings(sym)
-        lines.append(f"🔹 {name:<14} : {ed}")
-
-    return "\n".join(lines)
-
-
-# ─────────────────────────────────────────
-# WHATSAPP
-# ─────────────────────────────────────────
-
-def init_browser():
-    options = Options()
-    options.add_argument("--start-maximized")
-
-    session_dir = os.path.join(os.path.expanduser("~"), "whatsapp_chrome_session")
-    options.add_argument(f"--user-data-dir={session_dir}")
-
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()),
-        options=options
-    )
-
-    driver.get("https://web.whatsapp.com")
-
-    WebDriverWait(driver, 90).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, 'div[aria-label="Chat list"]'))
-    )
-
-    return driver
-
-
-def send_whatsapp(driver, phone, msg):
-    driver.get(f"https://web.whatsapp.com/send?phone={phone}&text={urllib.parse.quote(msg)}")
-
-    box = WebDriverWait(driver, 40).until(
-        EC.presence_of_element_located((By.XPATH, "//div[@contenteditable='true']"))
-    )
-
-    time.sleep(3)
-    box.send_keys(Keys.ENTER)
-
-    print("✅ Sent")
-    time.sleep(5)
-
-
-# ─────────────────────────────────────────
-
-def main():
-    print("🚀 Sending Market Briefing...")
-
-    driver = init_browser()
-    msg = build_message()
-
-    print(msg)
-    send_whatsapp(driver, WHATSAPP_PHONE, msg)
-
-    print("🎉 DONE")
-
-
-if __name__ == "__main__":
-    main()
