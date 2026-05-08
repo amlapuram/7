@@ -4,3 +4,9 @@ pandas
 numpy
 matplotlib
 plotly
+streamlit
+yfinance
+selenium
+webdriver-manager
+chromium
+chromium-driver
